@@ -9,3 +9,4 @@ pymongo
 scikit-learn
 fastapi
 uvicorn
+certifi
