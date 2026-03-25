@@ -25,7 +25,7 @@ def get_chat(chat_id):
     return chats_collection.find_one(_build_chat_lookup(chat_id))
 
 
-def upsert_chat(chat_id, gender=None):
+def upsert_chat(chat_id, gender=None, first_comment=None):
     """Create or update chat metadata using the incoming chat id."""
     existing_chat = get_chat(chat_id)
     normalized_gender = normalize_gender(gender)
@@ -43,6 +43,7 @@ def upsert_chat(chat_id, gender=None):
     chat_doc = {
         "external_chat_id": chat_id,
         "gender": normalized_gender,
+        "first_comment": first_comment,
         "created_at": datetime.now(timezone.utc),
         **update_fields,
     }

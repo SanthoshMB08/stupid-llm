@@ -33,7 +33,7 @@ def _format_history_for_rag(history):
 def send_message(chat_id, user_input, gender):
     """Generate a response using gender prompt + chat history RAG, then save both turns."""
     normalized_gender = normalize_gender(gender)
-    chat = upsert_chat(chat_id, gender=normalized_gender)
+    chat = upsert_chat(chat_id, gender=normalized_gender, first_comment=user_input)
     active_gender = chat.get("gender")
 
     history = get_messages(chat_id)
