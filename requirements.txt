@@ -5,5 +5,7 @@ bcrypt
 numpy
 sqlite-utils
 groq
-supabase
+pymongo
 scikit-learn
+fastapi
+uvicorn

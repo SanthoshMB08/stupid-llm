@@ -1,37 +1,81 @@
-from supabase_client import supabase
+from mongo_client import messages_collection
 from llm import chat_completion
 from rag import get_relevant_context
+from prompt import get_gender_base_prompt
+from database import normalize_gender, upsert_chat
+
+
+PERSONA_NAMES = {
+    "male": "Aiden",
+    "female": "Mira",
+}
+
 
 def get_messages(chat_id):
-    result = supabase.table("messages").select("role, content").eq("chat_id", chat_id).order("id").execute()
-    return [(row["role"], row["content"]) for row in result.data]
+    """Retrieve all messages for a chat."""
+    try:
+        results = list(messages_collection.find({"chat_id": chat_id}).sort("_id", 1))
+        return [(row["role"], row["content"]) for row in results]
+    except Exception:
+        return []
 
-def send_message(chat_id, user_input):
-    # fetch history
-    history = supabase.table("messages").select("role, content").eq("chat_id", chat_id).order("id").execute()
-    texts = [c for r, c in [(row["role"], row["content"]) for row in history.data] if r == "user"]
 
-    # RAG context
-    context = get_relevant_context(texts, user_input)
+def build_persona_prompt(gender=None):
+    """Create the base prompt using gender first."""
+    normalized_gender = normalize_gender(gender)
+    return get_gender_base_prompt(normalized_gender)
 
-    messages = [{"role": "system", "content": "You are a helpful AI assistant."}]
-    for ctx in context:
-        messages.append({"role": "user", "content": ctx})
+
+def _format_history_for_rag(history):
+    return [f"{role}: {content}" for role, content in history if content]
+
+
+def send_message(chat_id, user_input, gender):
+    """Generate a response using gender prompt + chat history RAG, then save both turns."""
+    normalized_gender = normalize_gender(gender)
+    chat = upsert_chat(chat_id, gender=normalized_gender)
+    active_gender = chat.get("gender")
+
+    history = get_messages(chat_id)
+    history_for_rag = _format_history_for_rag(history)
+    context = get_relevant_context(history_for_rag, user_input, k=3)
+
+    messages = [{"role": "system", "content": build_persona_prompt(active_gender)}]
+
+    if context:
+        context_block = "\n".join(f"- {item}" for item in context)
+        messages.append(
+            {
+                "role": "system",
+                "content": f"Use this past chat context for continuity when relevant:\n{context_block}",
+            }
+        )
+
+    for role, content in history[-8:]:
+        messages.append({"role": role, "content": content})
+
     messages.append({"role": "user", "content": user_input})
-
     reply = chat_completion(messages)
 
-    # insert user + assistant messages
-    supabase.table("messages").insert({
-        "chat_id": chat_id,
-        "role": "user",
-        "content": user_input
-    }).execute()
+    messages_collection.insert_one(
+        {
+            "chat_id": chat_id,
+            "role": "user",
+            "content": user_input,
+        }
+    )
+    messages_collection.insert_one(
+        {
+            "chat_id": chat_id,
+            "role": "assistant",
+            "content": reply,
+        }
+    )
 
-    supabase.table("messages").insert({
+    return {
         "chat_id": chat_id,
-        "role": "assistant",
-        "content": reply
-    }).execute()
-
-    return reply
+        "gender": active_gender,
+        "assistant_name": PERSONA_NAMES.get(active_gender, "Nova"),
+        "reply": reply,
+        "context_used": context,
+    }
